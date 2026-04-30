@@ -4,15 +4,15 @@ import { MapContainer, Marker, Polyline, Popup, TileLayer } from "react-leaflet"
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000/api";
 
 const statusRows = [
-  { key: "off_duty", label: "Off Duty", y: 3 },
-  { key: "sleeper", label: "Sleeper", y: 2 },
-  { key: "driving", label: "Driving", y: 1 },
-  { key: "on_duty_not_driving", label: "On Duty", y: 0 },
+  { key: "off_duty", label: "Off Duty" },
+  { key: "sleeper", label: "Sleeper" },
+  { key: "driving", label: "Driving" },
+  { key: "on_duty_not_driving", label: "On Duty" },
 ];
 
 function rowForStatus(status) {
-  const row = statusRows.find((item) => item.key === status);
-  return row ? row.y : 0;
+  const index = statusRows.findIndex((item) => item.key === status);
+  return index >= 0 ? index : 0;
 }
 
 function fmtDateTime(value) {

@@ -1,5 +1,7 @@
 # Frontend — Trip + ELD Planner UI
 
+🌐 **Live app:** [https://ornate-sunshine-fff884.netlify.app](https://ornate-sunshine-fff884.netlify.app)
+
 React + Vite single-page application that lets drivers enter trip details and instantly generates a route map, duty timeline, turn-by-turn instructions, and FMCSA-style daily ELD log sheets.
 
 ---
@@ -102,16 +104,3 @@ One SVG log sheet rendered per calendar day, matching the FMCSA 49 CFR 395 paper
 - Four colour-coded row bands (Off Duty / Sleeper / Driving / On Duty)
 - Filled bars for each duty segment
 - Totals footer: Driving / On Duty (Stop) / Sleeper / Off Duty (driving time is **not** double-counted in on-duty total)
-
----
-
-## Deployment (Vercel)
-
-1. Push the `frontend/` folder (or whole repo) to GitHub.
-2. Import the project in [vercel.com](https://vercel.com).
-3. Set the **Root Directory** to `frontend`.
-4. Add the environment variable:
-   ```
-   VITE_API_BASE = https://your-backend.onrender.com/api
-   ```
-5. Deploy — Vercel auto-detects Vite and runs `npm run build`.

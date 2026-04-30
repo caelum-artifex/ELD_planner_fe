@@ -3,16 +3,17 @@ import { MapContainer, Marker, Polyline, Popup, TileLayer } from "react-leaflet"
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000/api";
 
-const statusRows = [
-  { key: "off_duty", label: "Off Duty" },
-  { key: "sleeper", label: "Sleeper" },
-  { key: "driving", label: "Driving" },
-  { key: "on_duty_not_driving", label: "On Duty" },
+// FMCSA standard row order (top → bottom), matching 49 CFR 395 log paper layout
+const LOG_ROWS = [
+  { key: "off_duty",            label: "1. Off Duty",          color: "#64748b", bg: "#f1f5f9" },
+  { key: "sleeper",             label: "2. Sleeper Berth",      color: "#0ea5e9", bg: "#e0f2fe" },
+  { key: "driving",             label: "3. Driving",            color: "#16a34a", bg: "#dcfce7" },
+  { key: "on_duty_not_driving", label: "4. On Duty (Not Drv.)", color: "#dc2626", bg: "#fee2e2" },
 ];
 
 function rowForStatus(status) {
-  const index = statusRows.findIndex((item) => item.key === status);
-  return index >= 0 ? index : 0;
+  const i = LOG_ROWS.findIndex((r) => r.key === status);
+  return i >= 0 ? i : 3;
 }
 
 function fmtDateTime(value) {
@@ -28,71 +29,201 @@ function fmtStatus(status) {
   return status.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
+// Hour labels matching real FMCSA log: M 1 2 3 4 5 6 7 8 9 10 11 N 1 2 3 4 5 6 7 8 9 10 11 M
+const HOUR_LABELS = [
+  "M","1","2","3","4","5","6","7","8","9","10","11",
+  "N","1","2","3","4","5","6","7","8","9","10","11","M",
+];
+
 function DailyLogSheet({ log, index }) {
-  const width = 980;
-  const leftPad = 130;
-  const topPad = 46;
-  const rowHeight = 38;
-  const chartHeight = rowHeight * 4;
-  const chartWidth = width - leftPad - 20;
-  const pxPerHour = chartWidth / 24;
+  const SVG_W      = 1020;
+  const LEFT       = 148;   // label column width
+  const RIGHT_PAD  = 20;
+  const CHART_W    = SVG_W - LEFT - RIGHT_PAD;
+  const ROW_H      = 44;
+  const ROWS       = LOG_ROWS.length;
+  const GRID_TOP   = 52;
+  const GRID_H     = ROW_H * ROWS;
+  const GRID_BOT   = GRID_TOP + GRID_H;
+  const PX_PER_H   = CHART_W / 24;
+  const TOTAL_Y    = GRID_BOT + 28;
+  const SVG_H      = TOTAL_Y + 40;
 
   const totals = log.totals;
 
   return (
     <div className="log-sheet">
-      <h3>Log Sheet #{index + 1} - {log.date}</h3>
-      <svg viewBox={`0 0 ${width} 280`} role="img" aria-label={`ELD log for ${log.date}`}>
-        <rect x="2" y="2" width={width - 4} height="276" fill="#fff" stroke="#111" />
-        <text x="16" y="24" className="sheet-title">Driver Daily Log</text>
-        <text x="16" y="40" className="sheet-subtitle">24-hour period: {log.date}</text>
+      <div className="log-sheet-header">
+        <span>Log Sheet #{index + 1}</span>
+        <strong>{log.date}</strong>
+        <span>Driving: <b>{totals.driving_hours}h</b></span>
+        <span>On Duty (Not Drv.): <b>{totals.on_duty_not_driving_hours}h</b></span>
+        <span>Sleeper: <b>{totals.sleeper_hours}h</b></span>
+        <span>Off Duty: <b>{totals.off_duty_hours}h</b></span>
+      </div>
 
-        {statusRows.map((row, idx) => (
-          <g key={row.key}>
-            <text x="16" y={topPad + idx * rowHeight + 24} className="row-label">{row.label}</text>
-            <line
-              x1={leftPad}
-              y1={topPad + idx * rowHeight}
-              x2={leftPad + chartWidth}
-              y2={topPad + idx * rowHeight}
-              stroke="#222"
-            />
-          </g>
+      <svg
+        viewBox={`0 0 ${SVG_W} ${SVG_H}`}
+        role="img"
+        aria-label={`ELD log for ${log.date}`}
+        style={{ display: "block", width: "100%", minWidth: 700 }}
+      >
+        {/* Background */}
+        <rect x="0" y="0" width={SVG_W} height={SVG_H} fill="#fafafa" />
+
+        {/* Row background bands */}
+        {LOG_ROWS.map((row, idx) => (
+          <rect
+            key={row.key + "-bg"}
+            x={LEFT}
+            y={GRID_TOP + idx * ROW_H}
+            width={CHART_W}
+            height={ROW_H}
+            fill={row.bg}
+            opacity="0.55"
+          />
         ))}
 
-        <line x1={leftPad} y1={topPad + chartHeight} x2={leftPad + chartWidth} y2={topPad + chartHeight} stroke="#222" />
-
-        {Array.from({ length: 25 }).map((_, i) => (
-          <g key={i}>
-            <line
-              x1={leftPad + i * pxPerHour}
-              y1={topPad}
-              x2={leftPad + i * pxPerHour}
-              y2={topPad + chartHeight}
-              stroke={i % 6 === 0 ? "#222" : "#b6b6b6"}
-              strokeWidth={i % 6 === 0 ? 1.4 : 0.8}
-            />
-            {i < 24 ? (
-              <text x={leftPad + i * pxPerHour + 2} y={topPad - 8} className="hour-label">{i}</text>
-            ) : null}
-          </g>
-        ))}
-
-        {log.entries.map((entry, idx) => {
-          const y = topPad + rowForStatus(entry.status) * rowHeight + rowHeight / 2;
-          const x = leftPad + entry.start_hour * pxPerHour;
-          const w = Math.max(1, (entry.end_hour - entry.start_hour) * pxPerHour);
+        {/* Hour grid vertical lines */}
+        {Array.from({ length: 25 }).map((_, i) => {
+          const isMajor = i % 6 === 0 || i === 12;
           return (
-            <g key={`${idx}-${entry.start_hour}`}>
-              <rect x={x} y={y - 8} width={w} height={16} fill="#111" rx="2" />
+            <line
+              key={`vline-${i}`}
+              x1={LEFT + i * PX_PER_H}
+              y1={GRID_TOP}
+              x2={LEFT + i * PX_PER_H}
+              y2={GRID_BOT}
+              stroke={isMajor ? "#64748b" : "#cbd5e1"}
+              strokeWidth={isMajor ? 1.5 : 0.7}
+            />
+          );
+        })}
+
+        {/* Every-30-min minor tick lines */}
+        {Array.from({ length: 48 }).map((_, i) => {
+          const x = LEFT + (i * 0.5) * PX_PER_H;
+          return (
+            <line
+              key={`tick-${i}`}
+              x1={x} y1={GRID_BOT}
+              x2={x} y2={GRID_BOT + 5}
+              stroke="#94a3b8"
+              strokeWidth={0.6}
+            />
+          );
+        })}
+
+        {/* Hour labels above grid (FMCSA style: M 1 2 … N … M) */}
+        {HOUR_LABELS.map((lbl, i) => (
+          <text
+            key={`hlbl-${i}`}
+            x={LEFT + i * PX_PER_H}
+            y={GRID_TOP - 8}
+            textAnchor="middle"
+            fontSize="11"
+            fill="#475467"
+            fontFamily="monospace"
+          >
+            {lbl}
+          </text>
+        ))}
+
+        {/* Row separators + row labels */}
+        {LOG_ROWS.map((row, idx) => (
+          <g key={row.key}>
+            {/* Row top border */}
+            <line
+              x1={LEFT} y1={GRID_TOP + idx * ROW_H}
+              x2={LEFT + CHART_W} y2={GRID_TOP + idx * ROW_H}
+              stroke="#94a3b8" strokeWidth="1"
+            />
+            {/* Row label */}
+            <text
+              x={LEFT - 6}
+              y={GRID_TOP + idx * ROW_H + ROW_H / 2 + 5}
+              textAnchor="end"
+              fontSize="12"
+              fontWeight="600"
+              fill={row.color}
+              fontFamily="Inter, sans-serif"
+            >
+              {row.label}
+            </text>
+            {/* Horizontal center line inside each row (FMCSA paper dashes) */}
+            <line
+              x1={LEFT} y1={GRID_TOP + idx * ROW_H + ROW_H / 2}
+              x2={LEFT + CHART_W} y2={GRID_TOP + idx * ROW_H + ROW_H / 2}
+              stroke="#e2e8f0" strokeWidth="0.8" strokeDasharray="4 3"
+            />
+          </g>
+        ))}
+
+        {/* Bottom border */}
+        <line
+          x1={LEFT} y1={GRID_BOT}
+          x2={LEFT + CHART_W} y2={GRID_BOT}
+          stroke="#64748b" strokeWidth="1.5"
+        />
+
+        {/* Left border */}
+        <line
+          x1={LEFT} y1={GRID_TOP}
+          x2={LEFT} y2={GRID_BOT}
+          stroke="#64748b" strokeWidth="1.5"
+        />
+
+        {/* Right border */}
+        <line
+          x1={LEFT + CHART_W} y1={GRID_TOP}
+          x2={LEFT + CHART_W} y2={GRID_BOT}
+          stroke="#64748b" strokeWidth="1.5"
+        />
+
+        {/* Duty status bars */}
+        {log.entries.map((entry, i) => {
+          const rowIdx = rowForStatus(entry.status);
+          const row    = LOG_ROWS[rowIdx];
+          const barH   = ROW_H * 0.52;
+          const barY   = GRID_TOP + rowIdx * ROW_H + (ROW_H - barH) / 2;
+          const x      = LEFT + entry.start_hour * PX_PER_H;
+          const w      = Math.max(2, (entry.end_hour - entry.start_hour) * PX_PER_H);
+          return (
+            <g key={`bar-${i}`}>
+              <rect
+                x={x} y={barY}
+                width={w} height={barH}
+                fill={row.color}
+                rx="2"
+                opacity="0.9"
+              />
             </g>
           );
         })}
 
-        <text x="16" y="228" className="totals">Driving: {totals.driving_hours}h</text>
-        <text x="220" y="228" className="totals">On Duty: {totals.on_duty_hours}h</text>
-        <text x="430" y="228" className="totals">Sleeper: {totals.sleeper_hours}h</text>
-        <text x="630" y="228" className="totals">Off Duty: {totals.off_duty_hours}h</text>
+        {/* Totals row – driving is separate from on-duty not driving */}
+        {[
+          { label: "Driving",        value: totals.driving_hours,              color: "#16a34a" },
+          { label: "On Duty (Stop)", value: totals.on_duty_not_driving_hours,  color: "#dc2626" },
+          { label: "Sleeper",        value: totals.sleeper_hours,              color: "#0ea5e9" },
+          { label: "Off Duty",       value: totals.off_duty_hours,             color: "#64748b" },
+        ].map((t, i) => (
+          <g key={t.label}>
+            <rect
+              x={LEFT + i * (CHART_W / 4)} y={TOTAL_Y - 4}
+              width={CHART_W / 4} height={26}
+              fill={t.color} opacity="0.1" rx="3"
+            />
+            <text
+              x={LEFT + i * (CHART_W / 4) + 8}
+              y={TOTAL_Y + 13}
+              fontSize="13" fill={t.color} fontWeight="700"
+              fontFamily="Inter, sans-serif"
+            >
+              {t.label}: {t.value}h
+            </text>
+          </g>
+        ))}
       </svg>
     </div>
   );
@@ -141,18 +272,32 @@ export default function App() {
     return [39.8283, -98.5795];
   }, [result]);
 
+  const [activeLeg, setActiveLeg] = useState("pickup");
+
   const instructionCount = useMemo(() => {
-    if (!result?.route?.instructions) {
-      return 0;
-    }
+    if (!result?.route?.instructions) return 0;
     return result.route.instructions.to_pickup.length + result.route.instructions.to_dropoff.length;
+  }, [result]);
+
+  const activeSteps = useMemo(() => {
+    if (!result?.route?.instructions) return [];
+    return activeLeg === "pickup"
+      ? result.route.instructions.to_pickup
+      : result.route.instructions.to_dropoff;
+  }, [result, activeLeg]);
+
+  const legDistances = useMemo(() => {
+    if (!result?.route?.stops) return { pickup: 0, dropoff: 0 };
+    return {
+      pickup:  result.route.distance_miles,
+      dropoff: result.route.distance_miles,
+    };
   }, [result]);
 
   return (
     <main className="page">
       <section className="hero">
         <div>
-          <p className="pill">Production-ready demo</p>
           <h1>Trip Route + ELD Log Planner</h1>
           <p className="hero-copy">
             Plan long-haul trips with FMCSA assumptions, visualize route and rest logic, and auto-generate
@@ -252,43 +397,71 @@ export default function App() {
           </section>
 
           <section className="card">
-            <h2>Drive Instructions</h2>
-            <div className="instructions-grid">
-              <div>
-                <h3>Current to Pickup</h3>
-                <ol className="instructions">
-                  {result.route.instructions.to_pickup.slice(0, 14).map((step, idx) => (
-                    <li key={`pickup-step-${idx}`}>
-                      <strong>{step.instruction}</strong> on {step.road}
-                      <span>{step.distance_miles} mi</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-              <div>
-                <h3>Pickup to Dropoff</h3>
-                <ol className="instructions">
-                  {result.route.instructions.to_dropoff.slice(0, 14).map((step, idx) => (
-                    <li key={`drop-step-${idx}`}>
-                      <strong>{step.instruction}</strong> on {step.road}
-                      <span>{step.distance_miles} mi</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
+            <div className="section-head">
+              <h2>Drive Instructions</h2>
+              <span className="step-count">{instructionCount} total steps</span>
             </div>
+
+            <div className="leg-tabs">
+              <button
+                className={`leg-tab${activeLeg === "pickup" ? " active" : ""}`}
+                onClick={() => setActiveLeg("pickup")}
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2"/>
+                  <circle cx="8" cy="8" r="2.5" fill="currentColor"/>
+                </svg>
+                Current → Pickup
+                <em>{result.route.instructions.to_pickup.length} steps</em>
+              </button>
+              <button
+                className={`leg-tab${activeLeg === "dropoff" ? " active" : ""}`}
+                onClick={() => setActiveLeg("dropoff")}
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                  <path d="M8 2 L8 12 M4 9 L8 13 L12 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Pickup → Dropoff
+                <em>{result.route.instructions.to_dropoff.length} steps</em>
+              </button>
+            </div>
+
+            <ol className="steps-list">
+              {activeSteps.map((step, idx) => (
+                <li key={`step-${activeLeg}-${idx}`} className="step-item">
+                  <span className="step-num">{idx + 1}</span>
+                  <div className="step-body">
+                    <span className="step-instruction">{step.instruction}</span>
+                    {step.road && step.road !== "unnamed road" && (
+                      <span className="step-road">on {step.road}</span>
+                    )}
+                  </div>
+                  <span className="step-dist">{step.distance_miles > 0 ? `${step.distance_miles} mi` : ""}</span>
+                </li>
+              ))}
+            </ol>
           </section>
 
           <section className="card">
-            <h2>Duty Timeline & Rest Events</h2>
+            <div className="section-head">
+              <h2>Duty Timeline & Rest Events</h2>
+              <span className="step-count">{result.schedule.length} events</span>
+            </div>
             <ul className="timeline">
-              {result.schedule.map((segment, idx) => (
-                <li key={`${segment.start}-${idx}`}>
-                  <span>{fmtDateTime(segment.start)}</span>
-                  <strong>{fmtStatus(segment.status)}</strong>
-                  <em>{segment.notes}</em>
-                </li>
-              ))}
+              {result.schedule.map((segment, idx) => {
+                const statusClass = "status-" + segment.status.replaceAll("_", "-");
+                const hrs = segment.hours != null ? segment.hours : "";
+                return (
+                  <li key={`${segment.start}-${idx}`} className={statusClass}>
+                    <span className="timeline-time">
+                      {fmtDateTime(segment.start)} → {fmtDateTime(segment.end)}
+                    </span>
+                    <span className="timeline-status">{fmtStatus(segment.status)}</span>
+                    <span className="timeline-notes">{segment.notes}</span>
+                    {hrs ? <span className="timeline-dur">{hrs}h</span> : null}
+                  </li>
+                );
+              })}
             </ul>
           </section>
 
